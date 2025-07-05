@@ -1,9 +1,10 @@
+import { GeminiService } from "./AiService.js";
 
 // Get references to DOM elements
 const messagesDiv = document.getElementById('messages');
 const chatForm = document.getElementById('chat-form');
 const userInput = document.getElementById('user-input');
-import { COHORT_API_SECRET_KEY } from "./constants.js";
+const fileInput = document.getElementById('file-input');
 // Store the conversation history
 let conversation = [];
 
@@ -25,39 +26,30 @@ function addMessage(role, content) {
 
 /**
  * Send a user message to the Cohere API and display the AI's response.
- * @param {string} message - The user's message
+ * @param {string} prompt - The user's message
  */
-async function sendMessage(message) {
-  console.log('[sendMessage] User message:', message);
-  conversation.push({ role: 'user', content: message });
-  addMessage('user', message);
+async function sendMessage(prompt, file) {
+  console.log('[sendMessage] User message:', prompt);
+  
+  conversation.push({ role: 'user', content: prompt });
+  addMessage('user', prompt);
   userInput.value = '';
   addMessage('ai', '...'); // Placeholder while waiting for response
+  
   const aiMsgDiv = messagesDiv.lastChild;
+  
   try {
-    // Prepare request payload
-    const payload = {
-      model: 'command-a-03-2025',
-      messages: conversation
-    };
-    console.log('[sendMessage] Sending payload:', payload);
-    const res = await fetch('https://api.cohere.com/v2/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${COHORT_API_SECRET_KEY}`
-      },
-      body: JSON.stringify(payload)
-    });
-    console.log('[sendMessage] Response status:', res.status);
-    const data = await res.json();
-    console.log('[sendMessage] API response:', data);
-    // Try to extract the AI's reply from the response
-    const aiReply = data.message.content[0].text || 'Sorry, no response.';
+    const aiReply = await GeminiService.generateText(prompt, file)
+        
     conversation.push({ role: 'assistant', content: aiReply });
     // Format the AI reply as markdown
     aiMsgDiv.innerHTML = formatMarkdown(aiReply);
+
+  } catch (e) {
+    console.error('[sendMessage] Error:', e);
+    aiMsgDiv.textContent = 'Error: ' + e.message;
+  }
+}
 
 /**
  * Format markdown text to HTML (basic support for code, bold, italics, links, line breaks).
@@ -91,17 +83,38 @@ function formatMarkdown(text) {
   html = html.replace(/\n/g, '<br>');
   return html;
 }
-  } catch (e) {
-    console.error('[sendMessage] Error:', e);
-    aiMsgDiv.textContent = 'Error: ' + e.message;
-  }
+
+async function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    // Event listener for when the file is successfully loaded
+    reader.onload = () => {
+      // reader.result will be a data URL (e.g., "data:image/png;base64,iVBORw0KGgo...")
+      // We need to extract only the Base64 part after the comma
+      const base64String = reader.result.split(',')[1];
+      resolve(base64String);
+    };
+
+    // Event listener for errors during file reading
+    reader.onerror = (error) => {
+      reject(error);
+    };
+
+    // Read the file as a Data URL
+    reader.readAsDataURL(file);
+  });
 }
 
-
 // Listen for form submission (user sends a message)
-chatForm.addEventListener('submit', e => {
+chatForm.addEventListener('submit', async e => {
   e.preventDefault();
   const msg = userInput.value.trim();
+  const file = fileInput.files[0];
+  console.log('[form submit] User input file:', file);
+  
+  const base64File = await fileToBase64(file);
   console.log('[form submit] User input:', msg);
-  if (msg) sendMessage(msg);
+  console.log('[form submit] User input file:', base64File);
+  if (msg) sendMessage(msg, base64File);
 });
